@@ -140,6 +140,17 @@ class AgentMissionBrief:
 
 
 @dataclass
+class AgentCoordinationPlan:
+    headline: str
+    summary: str
+    technical_agent_updates: List[str]
+    vibecoding_agent_updates: List[str]
+    call_sequence: List[str]
+    refactor_update_risks: List[str]
+    safety_guardrails: List[str]
+
+
+@dataclass
 class RemediationPrompt:
     title: str
     prompt: str
@@ -158,7 +169,7 @@ class ReviewOptions:
     demo_goal: str = ""
 
     def normalized(self) -> "ReviewOptions":
-        audience = self.audience if self.audience in {"balanced", "judges", "founders", "engineers"} else "balanced"
+        audience = self.audience if self.audience in {"balanced", "judges", "founders", "engineers", "teamlead"} else "balanced"
         review_depth = self.review_depth if self.review_depth in {"fast", "balanced", "deep"} else "balanced"
         focus_mode = self.focus_mode if self.focus_mode in {"balanced", "security", "architecture", "demo"} else "balanced"
         max_files = self.max_files if self.max_files is None or self.max_files > 0 else None
@@ -252,6 +263,8 @@ class RepositoryReviewResult:
     delivery_risk_analysis: DeliveryRiskAnalysis | None = None
     hackathon_showcase: HackathonShowcase | None = None
     agent_brief: AgentMissionBrief | None = None
+    vibecoding_agent_brief: AgentMissionBrief | None = None
+    agent_coordination_plan: AgentCoordinationPlan | None = None
     remediation_prompt: RemediationPrompt | None = None
     file_remediation_prompts: List[RemediationPrompt] = field(default_factory=list)
 
@@ -275,6 +288,8 @@ class RepositoryReviewResult:
             },
             "hackathon_showcase": None if self.hackathon_showcase is None else self.hackathon_showcase.__dict__,
             "agent_brief": None if self.agent_brief is None else self.agent_brief.__dict__,
+            "vibecoding_agent_brief": None if self.vibecoding_agent_brief is None else self.vibecoding_agent_brief.__dict__,
+            "agent_coordination_plan": None if self.agent_coordination_plan is None else self.agent_coordination_plan.__dict__,
             "remediation_prompt": None if self.remediation_prompt is None else self.remediation_prompt.__dict__,
             "file_remediation_prompts": [prompt.__dict__ for prompt in self.file_remediation_prompts],
             "reviewed_files": [review.to_dict() for review in self.reviewed_files],
@@ -384,52 +399,104 @@ class HtmlReportRenderer:
         repository_focus = self._render_repository_focus(review)
         priority_actions = self._render_priority_actions(review)
         report_toolbar = self._render_report_toolbar(review)
+        technical_agent_panel = self._render_professional_technical_agent_brief(review)
+        vibecoding_agent_panel = self._render_vibecoding_agent_brief(review)
+        coordination_panel = self._render_agent_coordination_plan(review)
         remediation_prompt = self._render_remediation_prompt(review)
         file_remediation_prompts = self._render_file_remediation_prompts(review)
 
         overview_cards = self._render_overview_cards(review)
+        summary_charts = self._render_summary_charts(review)
+        summary_tab = f"""
+        <section class=\"tab-panel\" id=\"tab-summary\" data-tab-panel>
+          <section class=\"panel summary-panel\" id=\"repository-summary\" data-story-section=\"proof\">
+            <div class=\"section-heading\">
+              <div>
+                <p class=\"eyebrow\">Mission control</p>
+                <h2>Repository Summary</h2>
+              </div>
+              <div class=\"badge-row\">
+                <span class=\"pill risk-{escape(review.risk_label)}\">Risk: {escape(review.risk_label.upper())}</span>
+                <span class=\"pill decision-{escape(review.decision)}\">Decision: {escape(review.decision.upper())}</span>
+              </div>
+            </div>
+            <div class=\"hero-grid\">{overview_cards}</div>
+            <div class=\"two-column\">
+              <div class=\"subpanel\">
+                <h3>Top Findings</h3>
+                <ul class=\"summary-list\">{summary_items}</ul>
+              </div>
+              <div class=\"subpanel\">
+                <h3>Metrics Snapshot</h3>
+                {metrics_html}
+              </div>
+            </div>
+            {summary_charts}
+          </section>
+        </section>
+        """
+        founder_tab = f"""
+        <section class=\"tab-panel\" id=\"tab-founder\" data-tab-panel hidden>
+          {founder_business_panel}
+        </section>
+        """
+        technical_tab = f"""
+        <section class=\"tab-panel\" id=\"tab-technical\" data-tab-panel hidden>
+          {technical_agent_panel}
+          {coordination_panel}
+          {priority_actions}
+          {repository_focus}
+        </section>
+        """
+        risks_tab = f"""
+        <section class=\"tab-panel\" id=\"tab-risks\" data-tab-panel hidden>
+          {delivery_risk_panel}
+        </section>
+        """
+        fixes_tab = f"""
+        <section class=\"tab-panel\" id=\"tab-fixes\" data-tab-panel hidden>
+          {vibecoding_agent_panel}
+          {remediation_prompt}
+          {file_remediation_prompts}
+        </section>
+        """
+        files_tab = f"""
+        <section class=\"tab-panel\" id=\"tab-files\" data-tab-panel hidden>
+          <section class=\"panel\" id=\"file-reviews\" data-story-section=\"proof\">
+            <div class=\"section-heading\">
+              <div>
+                <p class=\"eyebrow\">Deep dive</p>
+                <h2>Per-file Reviews</h2>
+              </div>
+              <span class=\"pill neutral\">Files reviewed: {len(review.reviewed_files)}</span>
+            </div>
+            {report_toolbar}
+            <div class=\"file-review-list\">{file_sections}</div>
+          </section>
+        </section>
+        """
+        tab_specs = self._build_tab_specs(review.options.audience)
+        tab_sections = {
+            "summary": summary_tab,
+            "founder": founder_tab,
+            "technical": technical_tab,
+            "risks": risks_tab,
+            "fixes": fixes_tab,
+            "files": files_tab,
+        }
+        tab_buttons = "".join(
+            f'<button type="button" class="tab-button{" active" if index == 0 else ""}" data-tab-target="tab-{tab_id}">{escape(label)}</button>'
+            for index, (tab_id, label) in enumerate(tab_specs)
+        )
+        tab_panels = "".join(tab_sections[tab_id] for tab_id, _label in tab_specs)
         body_sections = f"""
         {self._render_error_banner(error_message)}
         {form_html}
-        <section class=\"panel summary-panel\" id=\"repository-summary\" data-story-section=\"proof\">
-          <div class=\"section-heading\">
-            <div>
-              <p class=\"eyebrow\">Mission control</p>
-              <h2>Repository Summary</h2>
-            </div>
-            <div class=\"badge-row\">
-              <span class=\"pill risk-{escape(review.risk_label)}\">Risk: {escape(review.risk_label.upper())}</span>
-              <span class=\"pill decision-{escape(review.decision)}\">Decision: {escape(review.decision.upper())}</span>
-            </div>
+        <section class=\"panel tab-shell\" id=\"report-tabs\">
+          <div class=\"tab-bar\">
+            {tab_buttons}
           </div>
-          <div class=\"hero-grid\">{overview_cards}</div>
-          <div class=\"two-column\">
-            <div class=\"subpanel\">
-              <h3>Top Findings</h3>
-              <ul class=\"summary-list\">{summary_items}</ul>
-            </div>
-            <div class=\"subpanel\">
-              <h3>Metrics Snapshot</h3>
-              {metrics_html}
-            </div>
-          </div>
-        </section>
-        {priority_actions}
-        {founder_business_panel}
-        {delivery_risk_panel}
-        {remediation_prompt}
-        {repository_focus}
-        {file_remediation_prompts}
-        <section class=\"panel\" id=\"file-reviews\" data-story-section=\"proof\">
-          <div class=\"section-heading\">
-            <div>
-              <p class=\"eyebrow\">Deep dive</p>
-              <h2>Per-file Reviews</h2>
-            </div>
-            <span class=\"pill neutral\">Files reviewed: {len(review.reviewed_files)}</span>
-          </div>
-          {report_toolbar}
-          <div class=\"file-review-list\">{file_sections}</div>
+          {tab_panels}
         </section>
         """
 
@@ -444,22 +511,54 @@ class HtmlReportRenderer:
             review_payload=json.dumps(review.to_dict()).replace("</", "<\\/"),
         )
 
-    def _render_agent_brief(self, review: RepositoryReviewResult) -> str:
-        if review.agent_brief is None:
+    def _build_tab_specs(self, audience: str) -> list[tuple[str, str]]:
+        if audience == "founders":
+            return [
+                ("summary", "Summary"),
+                ("founder", "Founder"),
+                ("risks", "Risks"),
+                ("fixes", "Fixes"),
+            ]
+        if audience in {"engineers", "teamlead"}:
+            return [
+                ("summary", "Summary"),
+                ("technical", "Technical"),
+                ("risks", "Risks"),
+                ("fixes", "Fixes"),
+                ("files", "Files"),
+            ]
+        return [
+            ("summary", "Summary"),
+            ("founder", "Founder"),
+            ("technical", "Technical"),
+            ("risks", "Risks"),
+            ("fixes", "Fixes"),
+            ("files", "Files"),
+        ]
+
+    def _render_agent_brief_panel(
+        self,
+        brief: AgentMissionBrief | None,
+        eyebrow: str,
+        heading: str,
+        readiness_label: str,
+        risk_label: str,
+    ) -> str:
+        if brief is None:
             return ""
-        brief = review.agent_brief
         workflow_steps = "".join(f"<li>{escape(item)}</li>" for item in brief.workflow_steps)
         autonomous_actions = "".join(f"<li>{escape(item)}</li>" for item in brief.autonomous_actions)
         return f"""
         <section class=\"panel\">
           <div class=\"section-heading\">
             <div>
-              <p class=\"eyebrow\">Agent mode</p>
-              <h2>Meet your review agent</h2>
+              <p class=\"eyebrow\">{escape(eyebrow)}</p>
+              <h2>{escape(heading)}</h2>
             </div>
             <div class=\"badge-row\">
               <span class=\"pill neutral\">{escape(brief.agent_name)}</span>
-              <span class=\"pill risk-{escape(review.risk_label)}\">Mode: {escape(brief.operating_mode)}</span>
+              <span class=\"pill risk-{escape(risk_label)}\">Mode: {escape(brief.operating_mode)}</span>
+              <span class=\"pill neutral\">{escape(readiness_label)}</span>
             </div>
           </div>
           <div class=\"two-column\">
@@ -476,6 +575,72 @@ class HtmlReportRenderer:
           <div class=\"subpanel\" style=\"margin-top: 16px;\">
             <h3>Actions this agent takes for you</h3>
             <ul class=\"summary-list\">{autonomous_actions}</ul>
+          </div>
+        </section>
+        """
+
+    def _render_professional_technical_agent_brief(self, review: RepositoryReviewResult) -> str:
+        return self._render_agent_brief_panel(
+            review.agent_brief,
+            eyebrow="Technical agent",
+            heading="Professional Technical Agent",
+            readiness_label="Review authority",
+            risk_label=review.risk_label,
+        )
+
+    def _render_vibecoding_agent_brief(self, review: RepositoryReviewResult) -> str:
+        return self._render_agent_brief_panel(
+            review.vibecoding_agent_brief,
+            eyebrow="Remediation agent",
+            heading="Separate VibeCoding Agent",
+            readiness_label="Fix delivery",
+            risk_label=review.risk_label,
+        )
+
+    def _render_agent_coordination_plan(self, review: RepositoryReviewResult) -> str:
+        if review.agent_coordination_plan is None:
+            return ""
+        plan = review.agent_coordination_plan
+        technical_updates = "".join(f"<li>{escape(item)}</li>" for item in plan.technical_agent_updates)
+        vibecoding_updates = "".join(f"<li>{escape(item)}</li>" for item in plan.vibecoding_agent_updates)
+        call_sequence = "".join(f"<li>{escape(item)}</li>" for item in plan.call_sequence)
+        refactor_update_risks = "".join(f"<li>{escape(item)}</li>" for item in plan.refactor_update_risks)
+        safety_guardrails = "".join(f"<li>{escape(item)}</li>" for item in plan.safety_guardrails)
+        return f"""
+        <section class="panel" data-story-section="agents">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Safe vibecoding loop</p>
+              <h2>{escape(plan.headline)}</h2>
+            </div>
+            <span class="pill neutral">Two-agent handoff</span>
+          </div>
+          <p>{escape(plan.summary)}</p>
+          <div class="two-column">
+            <div class="subpanel">
+              <h3>Technical agent updates</h3>
+              <ul class="summary-list">{technical_updates}</ul>
+            </div>
+            <div class="subpanel">
+              <h3>VibeCoding agent updates</h3>
+              <ul class="summary-list">{vibecoding_updates}</ul>
+            </div>
+          </div>
+          <div class="two-column" style="margin-top: 16px;">
+            <div class="subpanel">
+              <h3>Call sequence</h3>
+              <ul class="summary-list">{call_sequence}</ul>
+            </div>
+            <div class="subpanel">
+              <h3>Refactoring and update risks</h3>
+              <ul class="summary-list">{refactor_update_risks}</ul>
+            </div>
+          </div>
+          <div class="two-column" style="margin-top: 16px;">
+            <div class="subpanel">
+              <h3>Safety guardrails</h3>
+              <ul class="summary-list">{safety_guardrails}</ul>
+            </div>
           </div>
         </section>
         """
@@ -531,7 +696,7 @@ class HtmlReportRenderer:
     .risk-high, .decision-block {{ background: rgba(127, 29, 29, 0.6); color: #fecaca; border-color: rgba(239, 68, 68, 0.4); }}
     .risk-medium, .decision-warn {{ background: rgba(120, 53, 15, 0.58); color: #fde68a; border-color: rgba(245, 158, 11, 0.4); }}
     .risk-low, .decision-allow {{ background: rgba(20, 83, 45, 0.62); color: #bbf7d0; border-color: rgba(34, 197, 94, 0.35); }}
-    .hero-grid, .metrics-grid, .finding-grid, .file-review-list, .two-column, .stakeholder-grid, .focus-grid, .recommendation-grid, .explainability-grid, .clarity-grid {{ display: grid; gap: 16px; }}
+    .hero-grid, .metrics-grid, .finding-grid, .file-review-list, .two-column, .stakeholder-grid, .focus-grid, .recommendation-grid, .explainability-grid, .clarity-grid, .chart-grid {{ display: grid; gap: 16px; }}
     .hero-grid {{ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 18px; }}
     .two-column {{ grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.2fr); align-items: start; }}
     .stakeholder-grid {{ grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-bottom: 22px; }}
@@ -557,6 +722,15 @@ class HtmlReportRenderer:
     .metric-card strong {{ display: block; font-size: 0.85rem; color: var(--muted); }}
     .metric-card span {{ display: block; margin-top: 10px; font-size: 1.3rem; font-weight: 800; }}
     .metric-card small {{ display: inline-block; margin-top: 10px; padding: 4px 8px; border-radius: 999px; font-weight: 700; }}
+    .chart-grid {{ grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 18px; }}
+    .chart-card {{ padding: 18px; border-radius: 18px; background: rgba(2, 6, 23, 0.62); border: 1px solid rgba(148, 163, 184, 0.14); }}
+    .chart-layout {{ display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 18px; align-items: center; }}
+    .pie-chart {{ width: 132px; height: 132px; border-radius: 50%; border: 10px solid rgba(15, 23, 42, 0.9); box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.14); }}
+    .chart-legend {{ margin: 0; padding: 0; list-style: none; }}
+    .chart-legend li {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid rgba(148, 163, 184, 0.08); }}
+    .chart-legend li:last-child {{ border-bottom: 0; }}
+    .legend-label {{ display: inline-flex; align-items: center; gap: 10px; }}
+    .legend-swatch {{ width: 12px; height: 12px; border-radius: 999px; display: inline-block; }}
     .summary-list, .explain-list {{ margin: 0; padding-left: 18px; }}
     .review-card {{ padding: 0; overflow: hidden; }}
     .review-body {{ padding: 0 22px 22px; }}
@@ -579,6 +753,10 @@ class HtmlReportRenderer:
     .severity-low {{ color: #bbf7d0; }}
     .form-panel {{ padding: 24px; margin-bottom: 22px; }}
     .control-grid, .toolbar-grid {{ display: grid; gap: 14px; }}
+    .tab-bar {{ display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid rgba(148, 163, 184, 0.16); }}
+    .tab-button {{ background: linear-gradient(135deg, rgba(34, 211, 238, 0.16), rgba(139, 92, 246, 0.14)); color: var(--text); border: 1px solid rgba(148, 163, 184, 0.18); box-shadow: none; }}
+    .tab-button.active {{ border-color: rgba(34, 211, 238, 0.55); color: #a5f3fc; background: linear-gradient(135deg, rgba(34, 211, 238, 0.28), rgba(139, 92, 246, 0.22)); }}
+    .tab-panel[hidden] {{ display: none !important; }}
     .control-grid {{ grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 16px; }}
     .toolbar-grid {{ grid-template-columns: minmax(220px, 1.2fr) repeat(2, minmax(180px, 0.9fr)); margin-bottom: 18px; }}
     .input-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 18px; }}
@@ -633,6 +811,8 @@ class HtmlReportRenderer:
       const reportCards = Array.from(document.querySelectorAll(".review-card"));
       const copyButton = document.getElementById("copy-report-json");
       const copyStatus = document.getElementById("copy-status");
+      const tabButtons = Array.from(document.querySelectorAll("[data-tab-target]"));
+      const tabPanels = Array.from(document.querySelectorAll("[data-tab-panel]"));
       const syncSourceFields = () => {{
         if (!sourceMode || !githubSource || !localSource) return;
         const githubSelected = sourceMode.value === "github";
@@ -685,6 +865,16 @@ class HtmlReportRenderer:
       if (focusSelect) focusSelect.addEventListener("change", applyCardFilters);
       applyCardFilters();
 
+      tabButtons.forEach((button) => {{
+        button.addEventListener("click", () => {{
+          const targetId = button.getAttribute("data-tab-target");
+          tabButtons.forEach((item) => item.classList.toggle("active", item === button));
+          tabPanels.forEach((panel) => {{
+            panel.hidden = panel.id !== targetId;
+          }});
+        }});
+      }});
+
       document.querySelectorAll("[data-story-target]").forEach((button) => {{
         button.addEventListener("click", () => {{
           document.querySelectorAll(".spotlight").forEach((node) => node.classList.remove("spotlight"));
@@ -692,6 +882,13 @@ class HtmlReportRenderer:
           if (!targetId) return;
           const target = document.getElementById(targetId);
           if (!target) return;
+          const parentPanel = target.closest("[data-tab-panel]");
+          if (parentPanel) {{
+            tabButtons.forEach((item) => item.classList.toggle("active", item.getAttribute("data-tab-target") === parentPanel.id));
+            tabPanels.forEach((panel) => {{
+              panel.hidden = panel !== parentPanel;
+            }});
+          }}
           target.classList.add("spotlight");
           target.scrollIntoView({{ behavior: "smooth", block: "start" }});
         }});
@@ -771,6 +968,7 @@ class HtmlReportRenderer:
                   <option value="balanced"{' selected' if options.audience == 'balanced' else ''}>Balanced team view</option>
                   <option value="judges"{' selected' if options.audience == 'judges' else ''}>Hackathon judges</option>
                   <option value="founders"{' selected' if options.audience == 'founders' else ''}>Founders and operators</option>
+                  <option value="teamlead"{' selected' if options.audience == 'teamlead' else ''}>Team lead or senior engineer</option>
                   <option value="engineers"{' selected' if options.audience == 'engineers' else ''}>Engineering team</option>
                 </select>
               </div>
@@ -835,6 +1033,53 @@ class HtmlReportRenderer:
 
     def _render_overview_card(self, title: str, value: str) -> str:
         return f'<div class="overview-card"><strong>{escape(title)}</strong><span>{escape(value)}</span></div>'
+
+    def _render_summary_charts(self, review: RepositoryReviewResult) -> str:
+        category_counts = Counter(finding.category for file_review in review.reviewed_files for finding in file_review.findings)
+        severity_counts = Counter(finding.severity for file_review in review.reviewed_files for finding in file_review.findings)
+        category_chart = self._render_pie_chart(
+            "Finding categories",
+            [("Security", category_counts.get("security", 0)), ("Design", category_counts.get("design", 0)), ("Other", sum(count for key, count in category_counts.items() if key not in {"security", "design"}))],
+            ["#22d3ee", "#8b5cf6", "#34d399"],
+        )
+        severity_chart = self._render_pie_chart(
+            "Severity mix",
+            [("High", severity_counts.get("high", 0)), ("Medium", severity_counts.get("medium", 0)), ("Low", severity_counts.get("low", 0))],
+            ["#ef4444", "#f59e0b", "#22c55e"],
+        )
+        return f"""
+        <section class="chart-grid" id="summary-charts">
+          {category_chart}
+          {severity_chart}
+        </section>
+        """
+
+    def _render_pie_chart(self, title: str, segments: List[tuple[str, int]], colors: List[str]) -> str:
+        normalized_segments = [(label, value, colors[index]) for index, (label, value) in enumerate(segments) if value > 0]
+        if not normalized_segments:
+            normalized_segments = [("No findings", 1, "#334155")]
+        total = sum(value for _label, value, _color in normalized_segments)
+        gradient_parts: List[str] = []
+        start = 0.0
+        for label, value, color in normalized_segments:
+            sweep = (value / total) * 360
+            end = start + sweep
+            gradient_parts.append(f"{color} {start:.2f}deg {end:.2f}deg")
+            start = end
+        legend_items = "".join(
+            f'<li><span class="legend-label"><span class="legend-swatch" style="background:{color};"></span>{escape(label)}</span><strong>{value}</strong></li>'
+            for label, value, color in normalized_segments
+        )
+        return f"""
+        <article class="chart-card">
+          <p class="eyebrow">Visual summary</p>
+          <h3>{escape(title)}</h3>
+          <div class="chart-layout">
+            <div class="pie-chart" aria-label="{escape(title)} pie chart" style="background: conic-gradient({', '.join(gradient_parts)});"></div>
+            <ul class="chart-legend">{legend_items}</ul>
+          </div>
+        </article>
+        """
 
     def _render_priority_actions(self, review: RepositoryReviewResult) -> str:
         focus_items = review.deep_dive_focus[:3]
@@ -1523,6 +1768,7 @@ class SafePromptMode:
             "judges": "hackathon judges",
             "founders": "founders and operators",
             "engineers": "an engineering team",
+            "teamlead": "technical leads and senior engineers",
         }[options.audience]
         goal_clause = f" Optimize for this demo goal: {options.demo_goal}." if options.demo_goal else ""
         return (
@@ -2272,6 +2518,8 @@ class SafeVibingSafetyAgent:
                     founder_business_analysis=self._build_founder_business_analysis([], empty_metrics, "warn", "medium", normalized_options),
                     delivery_risk_analysis=self._build_delivery_risk_analysis([], empty_metrics, "warn", "medium"),
                     agent_brief=self._build_agent_brief([], empty_metrics, "warn", "medium", normalized_options),
+                    vibecoding_agent_brief=self._build_vibecoding_agent_brief([], empty_metrics, "warn", "medium", normalized_options),
+                    agent_coordination_plan=self._build_agent_coordination_plan([], empty_metrics, "warn", "medium", normalized_options),
                 )
 
             reviews: List[ReviewResult] = []
@@ -2351,6 +2599,8 @@ class SafeVibingSafetyAgent:
             delivery_risk_analysis=self._build_delivery_risk_analysis(reviews, aggregated_metrics, overall_decision, risk_label),
             hackathon_showcase=self._build_hackathon_showcase(reviews, aggregated_metrics, overall_decision, risk_label, options),
             agent_brief=self._build_agent_brief(reviews, aggregated_metrics, overall_decision, risk_label, options),
+            vibecoding_agent_brief=self._build_vibecoding_agent_brief(reviews, aggregated_metrics, overall_decision, risk_label, options),
+            agent_coordination_plan=self._build_agent_coordination_plan(reviews, aggregated_metrics, overall_decision, risk_label, options),
             remediation_prompt=self.remediation_prompt_engine.build(reviews, aggregated_metrics, options),
             file_remediation_prompts=self.remediation_prompt_engine.build_per_file_prompts(reviews, options, limit=10),
         )
@@ -2413,6 +2663,8 @@ class SafeVibingSafetyAgent:
             f"Current repository risk is {risk_label.upper()}, so the approval workflow is not yet release-ready.",
             f"Design findings count is {design_findings}, which may indicate coupling or boundary drift in AI-generated changes.",
             f"Duplication risk is {metrics.duplication_risk.upper()} and may slow refactoring if left unchecked.",
+            f"Refactoring risk rises with a change surface of {metrics.change_surface}, because broad updates can break behavior across multiple touchpoints.",
+            f"Project update risk remains tied to secure-by-design at {metrics.secure_by_design_score}/100 and safe defaults at {metrics.safe_defaults_score}/100.",
         ]
         if hotspot_files:
             concerns.append(f"Highest-attention files currently include {', '.join(hotspot_files[:3])}.")
@@ -2739,11 +2991,11 @@ class SafeVibingSafetyAgent:
         else:
             autonomous_actions.append("Stay ready for the next repository intake even when no supported files are detected.")
         return AgentMissionBrief(
-            agent_name="SafeVibing Safety Agent",
-            agent_role="Autonomous repository reviewer for fast-moving AI and hackathon teams",
+            agent_name="SafeVibing Professional Technical Agent",
+            agent_role="Professional technical review agent for repository safety, architecture, and delivery quality",
             mission=(
-                "I act like an AI review agent: I scan generated code, surface risks, explain my reasoning, and hand back an action plan "
-                "the team can use immediately."
+                "I act like a professional technical review agent: I inspect repository code, surface risks, explain the evidence, "
+                "and hand back a defensible action plan for founders, team leads, and senior engineers."
             ),
             operating_mode=operating_mode,
             workflow_steps=workflow_steps,
@@ -2751,6 +3003,105 @@ class SafeVibingSafetyAgent:
             handoff_message=(
                 f"Current recommendation: {decision.upper()} the repo state and start with {top_focus}."
             ),
+        )
+
+    def _build_vibecoding_agent_brief(
+        self,
+        reviews: List[ReviewResult],
+        metrics: MetricSnapshot | None,
+        decision: str,
+        risk_label: str,
+        options: ReviewOptions,
+    ) -> AgentMissionBrief:
+        metrics = metrics or MetricSnapshot(0, 0, 100, "low", 100, 0, 100, 100, 0, 100)
+        prompt_count = min(10, len(reviews))
+        top_focus = next((item.file_path for item in self.deep_dive_engine.build_repository_focus(reviews)), "the current repository")
+        operating_mode = {
+            "block": "Constrain and remediate",
+            "warn": "Refactor and verify",
+            "allow": "Polish and harden",
+        }[decision]
+        workflow_steps = [
+            "Receive the repository review findings from the professional technical agent rather than re-deciding the diagnosis from scratch.",
+            f"Translate the highest-risk issues into constrained VibeCoding remediation tasks with a {options.focus_mode} focus.",
+            "Preserve business behavior while reducing security risk, smells, and complexity in the selected files.",
+            f"Return copyable prompts and implementation guidance starting with {top_focus}.",
+        ]
+        autonomous_actions = [
+            f"Prepare repo-wide and per-file remediation prompts for up to {prompt_count} risky file(s).",
+            f"Keep secure-by-design and safe-default targets visible while security risk remains {metrics.security_risk_score}/100.",
+            f"Constrain VibeCoding autonomy with explicit guardrails when the repository posture is {risk_label.upper()}.",
+        ]
+        if reviews:
+            autonomous_actions.append(f"Route the first remediation pass to {top_focus} before broader cleanup work.")
+        else:
+            autonomous_actions.append("Stay ready to turn the next repository review into constrained remediation prompts.")
+        return AgentMissionBrief(
+            agent_name="SafeVibing VibeCoding Agent",
+            agent_role="Separate remediation agent for VibeCoding fixes and controlled refactors",
+            mission=(
+                "I act as a separate VibeCoding agent: I consume the technical review, turn it into constrained fix prompts, "
+                "and focus on safe remediation instead of repository diagnosis."
+            ),
+            operating_mode=operating_mode,
+            workflow_steps=workflow_steps,
+            autonomous_actions=autonomous_actions,
+            handoff_message=(
+                f"Current remediation handoff: start VibeCoding on {top_focus} with guarded prompts and verification requirements."
+            ),
+        )
+
+    def _build_agent_coordination_plan(
+        self,
+        reviews: List[ReviewResult],
+        metrics: MetricSnapshot | None,
+        decision: str,
+        risk_label: str,
+        options: ReviewOptions,
+    ) -> AgentCoordinationPlan:
+        metrics = metrics or MetricSnapshot(0, 0, 100, "low", 100, 0, 100, 100, 0, 100)
+        top_focus = next((item.file_path for item in self.deep_dive_engine.build_repository_focus(reviews)), "the current repository")
+        reviewed_count = len(reviews)
+        hotspot_files = [review.file_path for review in reviews if review.risk_label == "high"][:3]
+        return AgentCoordinationPlan(
+            headline="Safe VibeCoding Agent Coordination",
+            summary=(
+                "The professional technical agent and the separate VibeCoding agent can update each other through a controlled loop: "
+                "diagnose first, hand off constrained fixes second, then return for verification before the repository is considered safer."
+            ),
+            technical_agent_updates=[
+                f"Send the current repository diagnosis, {risk_label.upper()} risk label, and {decision.upper()} approval posture to the VibeCoding agent.",
+                f"Mark {top_focus} as the first file to remediate out of {reviewed_count} reviewed file(s).",
+                f"Update the VibeCoding agent with explicit {options.focus_mode} priorities and the current security risk of {metrics.security_risk_score}/100.",
+            ],
+            vibecoding_agent_updates=[
+                "Return a constrained change plan instead of making open-ended autonomous edits.",
+                f"Send back remediation status, preserved business-behavior assumptions, and safe-default targets before the next technical pass on {top_focus}.",
+                "Escalate unresolved blockers, residual security risk, and missing tests back to the professional technical agent.",
+            ],
+            call_sequence=[
+                "Technical agent reviews the repository and creates the diagnosis.",
+                "Technical agent calls the VibeCoding agent with the scoped remediation brief.",
+                "VibeCoding agent updates the technical agent with planned fixes and residual risks.",
+                "Technical agent re-checks the proposed changes before approval or next iteration.",
+            ],
+            refactor_update_risks=[
+                f"Refactoring risk: the current change surface is {metrics.change_surface}, so broad edits can ripple across multiple functions or classes.",
+                f"Update risk: duplication risk is {metrics.duplication_risk.upper()}, so repeated logic may require synchronized fixes in more than one place.",
+                f"Refactoring risk: maintainability is {metrics.maintainability_index}, which raises the chance of regressions when restructuring {top_focus}.",
+                (
+                    f"Update risk: high-attention files currently include {', '.join(hotspot_files)}."
+                    if hotspot_files
+                    else "Update risk: even without flagged hotspot files, changes still need regression checks before sign-off."
+                ),
+                f"Security update risk: secure-by-design is {metrics.secure_by_design_score}/100 and safe defaults are {metrics.safe_defaults_score}/100, so updates can reopen trust boundaries if they are not re-reviewed.",
+            ],
+            safety_guardrails=[
+                "The VibeCoding agent cannot redefine the diagnosis; it must work from the technical review.",
+                "All remediation stays constrained to explicit files, risks, and business-behavior preservation rules.",
+                "Approval remains with the professional technical agent, not the remediation agent.",
+                "High-risk repositories require verification, tests, and a final return update before sign-off.",
+            ],
         )
 
 

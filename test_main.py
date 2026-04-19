@@ -122,10 +122,28 @@ def add(a: int, b: int) -> int:
         self.assertTrue(all(item.findings for item in review.delivery_risk_analysis.items))
         self.assertIsNotNone(review.agent_brief)
         assert review.agent_brief is not None
-        self.assertEqual("SafeVibing Safety Agent", review.agent_brief.agent_name)
-        self.assertIn("AI review agent", review.agent_brief.mission)
+        self.assertEqual("SafeVibing Professional Technical Agent", review.agent_brief.agent_name)
+        self.assertIn("professional technical review agent", review.agent_brief.mission)
         self.assertTrue(review.agent_brief.workflow_steps)
         self.assertTrue(review.agent_brief.autonomous_actions)
+        self.assertIsNotNone(review.vibecoding_agent_brief)
+        assert review.vibecoding_agent_brief is not None
+        self.assertEqual("SafeVibing VibeCoding Agent", review.vibecoding_agent_brief.agent_name)
+        self.assertIn("separate VibeCoding agent", review.vibecoding_agent_brief.mission)
+        self.assertTrue(review.vibecoding_agent_brief.workflow_steps)
+        self.assertTrue(review.vibecoding_agent_brief.autonomous_actions)
+        self.assertIsNotNone(review.agent_coordination_plan)
+        assert review.agent_coordination_plan is not None
+        self.assertIn("Safe VibeCoding Agent Coordination", review.agent_coordination_plan.headline)
+        self.assertTrue(review.agent_coordination_plan.technical_agent_updates)
+        self.assertTrue(review.agent_coordination_plan.vibecoding_agent_updates)
+        self.assertTrue(review.agent_coordination_plan.call_sequence)
+        self.assertTrue(review.agent_coordination_plan.refactor_update_risks)
+        self.assertTrue(review.agent_coordination_plan.safety_guardrails)
+        self.assertTrue(any("calls the VibeCoding agent" in item for item in review.agent_coordination_plan.call_sequence))
+        self.assertTrue(any("updates the technical agent" in item for item in review.agent_coordination_plan.call_sequence))
+        self.assertTrue(any("Refactoring risk:" in item for item in review.agent_coordination_plan.refactor_update_risks))
+        self.assertTrue(any("Update risk:" in item for item in review.agent_coordination_plan.refactor_update_risks))
         self.assertIsNotNone(review.remediation_prompt)
         assert review.remediation_prompt is not None
         self.assertIn("senior software engineer", review.remediation_prompt.prompt)
@@ -140,16 +158,45 @@ def add(a: int, b: int) -> int:
         self.assertEqual("security", review.file_remediation_prompts[0].group)
         self.assertIn("weak governance", review.file_remediation_prompts[0].prompt)
         self.assertIn("agent_brief", review_dict)
+        self.assertIn("vibecoding_agent_brief", review_dict)
+        self.assertIn("agent_coordination_plan", review_dict)
         self.assertIn("founder_business_analysis", review_dict)
         self.assertIn("delivery_risk_analysis", review_dict)
         self.assertEqual(
             review.agent_brief.agent_name,
             review_dict["agent_brief"]["agent_name"],
         )
+        self.assertEqual(
+            review.vibecoding_agent_brief.agent_name,
+            review_dict["vibecoding_agent_brief"]["agent_name"],
+        )
         self.assertIn("remediation_prompt", review_dict)
         self.assertIn("file_remediation_prompts", review_dict)
         html = self.renderer.render(review)
+        self.assertIn('data-tab-target="tab-summary"', html)
+        self.assertIn('data-tab-target="tab-founder"', html)
+        self.assertIn('data-tab-target="tab-technical"', html)
+        self.assertIn('data-tab-target="tab-risks"', html)
+        self.assertIn('data-tab-target="tab-fixes"', html)
+        self.assertIn('data-tab-target="tab-files"', html)
+        self.assertIn('class="tab-button active"', html)
         self.assertIn("Repository Summary", html)
+        self.assertIn("Finding categories", html)
+        self.assertIn("Severity mix", html)
+        self.assertIn("pie chart", html)
+        self.assertIn("Professional Technical Agent", html)
+        self.assertIn("Separate VibeCoding Agent", html)
+        self.assertIn("Safe VibeCoding Agent Coordination", html)
+        self.assertIn("Safe vibecoding loop", html)
+        self.assertIn("Technical agent updates", html)
+        self.assertIn("VibeCoding agent updates", html)
+        self.assertIn("Call sequence", html)
+        self.assertIn("Refactoring and update risks", html)
+        self.assertIn("Refactoring risk:", html)
+        self.assertIn("Update risk:", html)
+        self.assertIn("Safety guardrails", html)
+        self.assertIn("SafeVibing Professional Technical Agent", html)
+        self.assertIn("SafeVibing VibeCoding Agent", html)
         self.assertIn("What matters now", html)
         self.assertIn("Copy fix prompt", html)
         self.assertIn("Per-file VibeCoder prompts", html)
@@ -183,6 +230,39 @@ def add(a: int, b: int) -> int:
         self.assertIn("File in focus: risky.py.", html)
         self.assertIn("risky.py", html)
         self.assertIn("<details class=\"review-card\" open", html)
+
+    def test_renderer_switches_tabs_for_founder_and_teamlead_audiences(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_path = Path(temp_dir)
+            (repo_path / "risky.py").write_text(
+                '''
+TOKEN = "abc123"
+def deploy(user_input):
+    return eval(user_input)
+''',
+                encoding="utf-8",
+            )
+
+            founder_review = self.agent.review_repository(
+                str(repo_path),
+                "Review this repository for founder clarity.",
+                ReviewOptions(audience="founders"),
+            )
+            teamlead_review = self.agent.review_repository(
+                str(repo_path),
+                "Review this repository for senior engineering action.",
+                ReviewOptions(audience="teamlead"),
+            )
+
+        founder_html = self.renderer.render(founder_review)
+        teamlead_html = self.renderer.render(teamlead_review)
+
+        self.assertIn('data-tab-target="tab-founder"', founder_html)
+        self.assertNotIn('data-tab-target="tab-technical"', founder_html)
+        self.assertNotIn('data-tab-target="tab-files"', founder_html)
+        self.assertIn('data-tab-target="tab-technical"', teamlead_html)
+        self.assertIn('data-tab-target="tab-files"', teamlead_html)
+        self.assertNotIn('data-tab-target="tab-founder"', teamlead_html)
 
     def test_repository_review_respects_include_patterns_and_max_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -255,6 +335,7 @@ def deploy_{index}(user_input):
         self.assertIn('name="demo_goal"', html)
         self.assertNotIn("Judge Demo", html)
         self.assertIn("Engineer Triage", html)
+        self.assertIn("Team lead or senior engineer", html)
         self.assertIn('option value="github" selected', html)
 
     def test_cli_accepts_explicit_repository_option_flags(self) -> None:
@@ -298,7 +379,7 @@ def deploy_{index}(user_input):
 
         options = handler._build_review_options(
             {
-                "audience": "judges",
+                "audience": "teamlead",
                 "review_depth": "deep",
                 "focus_mode": "demo",
                 "max_files": "9",
@@ -308,7 +389,7 @@ def deploy_{index}(user_input):
             }
         )
 
-        self.assertEqual("judges", options.audience)
+        self.assertEqual("teamlead", options.audience)
         self.assertEqual("deep", options.review_depth)
         self.assertEqual("demo", options.focus_mode)
         self.assertEqual(9, options.max_files)
