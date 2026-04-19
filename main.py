@@ -91,6 +91,33 @@ class StakeholderView:
 
 
 @dataclass
+class FounderBusinessAnalysis:
+    headline: str
+    market_position: str
+    product_value: str
+    go_to_market: List[str]
+    business_risks: List[str]
+    growth_opportunities: List[str]
+    founder_questions: List[str]
+
+
+@dataclass
+class DeliveryRiskItem:
+    title: str
+    severity: str
+    summary: str
+    findings: List[str]
+    mitigations: List[str]
+
+
+@dataclass
+class DeliveryRiskAnalysis:
+    headline: str
+    summary: str
+    items: List[DeliveryRiskItem]
+
+
+@dataclass
 class HackathonShowcase:
     project_tagline: str
     innovation_score: int
@@ -221,6 +248,8 @@ class RepositoryReviewResult:
     summary: List[str] = field(default_factory=list)
     technical_leader_view: StakeholderView | None = None
     business_view: StakeholderView | None = None
+    founder_business_analysis: FounderBusinessAnalysis | None = None
+    delivery_risk_analysis: DeliveryRiskAnalysis | None = None
     hackathon_showcase: HackathonShowcase | None = None
     agent_brief: AgentMissionBrief | None = None
     remediation_prompt: RemediationPrompt | None = None
@@ -238,6 +267,12 @@ class RepositoryReviewResult:
             "deep_dive_focus": [item.__dict__ for item in self.deep_dive_focus],
             "technical_leader_view": None if self.technical_leader_view is None else self.technical_leader_view.__dict__,
             "business_view": None if self.business_view is None else self.business_view.__dict__,
+            "founder_business_analysis": None if self.founder_business_analysis is None else self.founder_business_analysis.__dict__,
+            "delivery_risk_analysis": None if self.delivery_risk_analysis is None else {
+                "headline": self.delivery_risk_analysis.headline,
+                "summary": self.delivery_risk_analysis.summary,
+                "items": [item.__dict__ for item in self.delivery_risk_analysis.items],
+            },
             "hackathon_showcase": None if self.hackathon_showcase is None else self.hackathon_showcase.__dict__,
             "agent_brief": None if self.agent_brief is None else self.agent_brief.__dict__,
             "remediation_prompt": None if self.remediation_prompt is None else self.remediation_prompt.__dict__,
@@ -344,11 +379,10 @@ class HtmlReportRenderer:
         metrics_html = ""
         if metrics is not None:
             metrics_html = self._render_metrics_grid(metrics)
-        stakeholder_sections = self._render_stakeholder_sections(review)
-        hackathon_showcase = self._render_hackathon_showcase(review)
-        agent_brief = self._render_agent_brief(review)
+        founder_business_panel = self._render_founder_business_panel(review)
+        delivery_risk_panel = self._render_delivery_risk_panel(review)
         repository_focus = self._render_repository_focus(review)
-        review_setup = self._render_review_setup(review)
+        priority_actions = self._render_priority_actions(review)
         report_toolbar = self._render_report_toolbar(review)
         remediation_prompt = self._render_remediation_prompt(review)
         file_remediation_prompts = self._render_file_remediation_prompts(review)
@@ -357,13 +391,6 @@ class HtmlReportRenderer:
         body_sections = f"""
         {self._render_error_banner(error_message)}
         {form_html}
-        {review_setup}
-        {agent_brief}
-        {remediation_prompt}
-        {file_remediation_prompts}
-        {stakeholder_sections}
-        {hackathon_showcase}
-        {repository_focus}
         <section class=\"panel summary-panel\" id=\"repository-summary\" data-story-section=\"proof\">
           <div class=\"section-heading\">
             <div>
@@ -387,6 +414,12 @@ class HtmlReportRenderer:
             </div>
           </div>
         </section>
+        {priority_actions}
+        {founder_business_panel}
+        {delivery_risk_panel}
+        {remediation_prompt}
+        {repository_focus}
+        {file_remediation_prompts}
         <section class=\"panel\" id=\"file-reviews\" data-story-section=\"proof\">
           <div class=\"section-heading\">
             <div>
@@ -525,11 +558,14 @@ class HtmlReportRenderer:
     .metric-card span {{ display: block; margin-top: 10px; font-size: 1.3rem; font-weight: 800; }}
     .metric-card small {{ display: inline-block; margin-top: 10px; padding: 4px 8px; border-radius: 999px; font-weight: 700; }}
     .summary-list, .explain-list {{ margin: 0; padding-left: 18px; }}
-    .review-card {{ padding: 22px; }}
+    .review-card {{ padding: 0; overflow: hidden; }}
+    .review-body {{ padding: 0 22px 22px; }}
     .focus-card, .recommendation-card, .clarity-card, .insight-card, .prompt-card {{ padding: 18px; border-radius: 18px; background: rgba(2, 6, 23, 0.62); border: 1px solid rgba(148, 163, 184, 0.14); }}
     .focus-card p, .recommendation-card p, .clarity-card p, .insight-card p, .prompt-card p {{ margin: 0 0 12px; }}
     .focus-card ul, .recommendation-card ul, .insight-card ul, .prompt-card ul {{ margin: 0; padding-left: 18px; }}
     .review-header {{ display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }}
+    details.review-card > summary {{ list-style: none; cursor: pointer; padding: 22px; }}
+    details.review-card > summary::-webkit-details-marker {{ display: none; }}
     .review-prompt {{ padding: 14px; border-radius: 14px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(148, 163, 184, 0.16); margin: 14px 0; }}
     .finding-grid {{ grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 18px 0; }}
     .finding {{ padding: 16px; border-radius: 16px; background: rgba(2, 6, 23, 0.72); border: 1px solid rgba(148, 163, 184, 0.12); border-left: 5px solid var(--high); }}
@@ -800,6 +836,29 @@ class HtmlReportRenderer:
     def _render_overview_card(self, title: str, value: str) -> str:
         return f'<div class="overview-card"><strong>{escape(title)}</strong><span>{escape(value)}</span></div>'
 
+    def _render_priority_actions(self, review: RepositoryReviewResult) -> str:
+        focus_items = review.deep_dive_focus[:3]
+        actions = [
+            f"Start with {item.file_path}: {item.next_step}." for item in focus_items
+        ] or ["No urgent file-level action was surfaced by the current review."]
+        if review.delivery_risk_analysis is not None:
+            actions.extend(
+                f"{item.title}: {item.findings[0]}" for item in review.delivery_risk_analysis.items[:2] if item.findings
+            )
+        action_list = "".join(f"<li>{escape(item)}</li>" for item in actions[:5])
+        return f"""
+        <section class="panel" id="priority-actions" data-story-section="proof">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Top actions</p>
+              <h2>What matters now</h2>
+            </div>
+            <span class="pill neutral">Concise view</span>
+          </div>
+          <ul class="summary-list">{action_list}</ul>
+        </section>
+        """
+
     def _render_stakeholder_sections(self, review: RepositoryReviewResult) -> str:
         views = [
             (review.technical_leader_view, "technical-card"),
@@ -852,6 +911,85 @@ class HtmlReportRenderer:
             </div>
           </div>
         </article>
+        """
+
+    def _render_founder_business_panel(self, review: RepositoryReviewResult) -> str:
+        if review.founder_business_analysis is None:
+            return ""
+        analysis = review.founder_business_analysis
+        go_to_market = "".join(f"<li>{escape(item)}</li>" for item in analysis.go_to_market)
+        business_risks = "".join(f"<li>{escape(item)}</li>" for item in analysis.business_risks)
+        growth_opportunities = "".join(f"<li>{escape(item)}</li>" for item in analysis.growth_opportunities)
+        founder_questions = "".join(f"<li>{escape(item)}</li>" for item in analysis.founder_questions)
+        return f"""
+        <section class="panel" id="founder-business-analysis" data-story-section="business">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Founder view</p>
+              <h2>High-Level Founder Business Analysis</h2>
+            </div>
+            <span class="pill neutral">Separate from coding review</span>
+          </div>
+          <div class="two-column">
+            <div class="subpanel">
+              <h3>{escape(analysis.headline)}</h3>
+              <p><strong>Market position:</strong> {escape(analysis.market_position)}</p>
+              <p><strong>Product value:</strong> {escape(analysis.product_value)}</p>
+            </div>
+            <div class="subpanel">
+              <h3>Go-to-market angle</h3>
+              <ul class="summary-list">{go_to_market}</ul>
+            </div>
+          </div>
+          <div class="stakeholder-columns" style="margin-top: 16px;">
+            <div class="subpanel">
+              <h3>Business Risks</h3>
+              <ul>{business_risks}</ul>
+            </div>
+            <div class="subpanel">
+              <h3>Growth Opportunities</h3>
+              <ul>{growth_opportunities}</ul>
+            </div>
+            <div class="subpanel">
+              <h3>Founder Questions</h3>
+              <ul>{founder_questions}</ul>
+            </div>
+          </div>
+        </section>
+        """
+
+    def _render_delivery_risk_panel(self, review: RepositoryReviewResult) -> str:
+        if review.delivery_risk_analysis is None:
+            return ""
+        analysis = review.delivery_risk_analysis
+        cards = "".join(
+            f"""
+            <article class="prompt-card">
+              <div class="badge-row">
+                <span class="pill risk-{escape(item.severity)}">{escape(item.severity.upper())}</span>
+              </div>
+              <h3>{escape(item.title)}</h3>
+              <p>{escape(item.summary)}</p>
+              <strong>Findings</strong>
+              <ul>{"".join(f"<li>{escape(finding)}</li>" for finding in item.findings)}</ul>
+              <strong>Mitigations</strong>
+              <ul>{"".join(f"<li>{escape(action)}</li>" for action in item.mitigations)}</ul>
+            </article>
+            """
+            for item in analysis.items
+        )
+        return f"""
+        <section class="panel" id="delivery-risk-analysis" data-story-section="risks">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Risk analysis</p>
+              <h2>{escape(analysis.headline)}</h2>
+            </div>
+            <span class="pill neutral">Governance critical</span>
+          </div>
+          <p>{escape(analysis.summary)}</p>
+          <div class="recommendation-grid">{cards}</div>
+        </section>
         """
 
     def _render_repository_focus(self, review: RepositoryReviewResult) -> str:
@@ -1080,27 +1218,34 @@ class HtmlReportRenderer:
               </div>
             </div>
             """
+        summary_text = review.deep_dive.summary if review.deep_dive is not None else "Open for detailed technical review."
+        is_open = " open" if review.risk_label == "high" else ""
         return f"""
-        <article class=\"review-card\" data-file=\"{escape((review.file_path or 'candidate').lower())}\" data-risk=\"{escape(review.risk_label)}\" data-focus=\"{escape(review_focus_values)}\">
-          <div class=\"review-header\">
-            <div>
-              <p class=\"eyebrow\">File review</p>
-              <h3>{escape(review.file_path or 'candidate')}</h3>
+        <details class=\"review-card\"{is_open} data-file=\"{escape((review.file_path or 'candidate').lower())}\" data-risk=\"{escape(review.risk_label)}\" data-focus=\"{escape(review_focus_values)}\">
+          <summary>
+            <div class=\"review-header\">
+              <div>
+                <p class=\"eyebrow\">File review</p>
+                <h3>{escape(review.file_path or 'candidate')}</h3>
+                <p class=\"muted\">{escape(summary_text)}</p>
+              </div>
+              <div class=\"badge-row\">
+                <span class=\"pill risk-{escape(review.risk_label)}\">Risk: {escape(review.risk_label.upper())}</span>
+                <span class=\"pill decision-{escape(review.decision)}\">Decision: {escape(review.decision.upper())}</span>
+              </div>
             </div>
-            <div class=\"badge-row\">
-              <span class=\"pill risk-{escape(review.risk_label)}\">Risk: {escape(review.risk_label.upper())}</span>
-              <span class=\"pill decision-{escape(review.decision)}\">Decision: {escape(review.decision.upper())}</span>
+          </summary>
+          <div class=\"review-body\">
+            <div class=\"review-prompt\"><strong>Rewritten prompt:</strong> {escape(review.rewritten_prompt)}</div>
+            {file_insight_html}
+            <div class=\"finding-grid\">{findings_html}</div>
+            {deep_dive_html}
+            <div class=\"subpanel\">
+              <h3>Explainability</h3>
+              {explainability_html}
             </div>
           </div>
-          <div class=\"review-prompt\"><strong>Rewritten prompt:</strong> {escape(review.rewritten_prompt)}</div>
-          {file_insight_html}
-          <div class=\"finding-grid\">{findings_html}</div>
-          {deep_dive_html}
-          <div class=\"subpanel\">
-            <h3>Explainability</h3>
-            {explainability_html}
-          </div>
-        </article>
+        </details>
         """
 
     def _render_review_setup(self, review: RepositoryReviewResult) -> str:
@@ -1945,10 +2090,16 @@ class RemediationPromptEngine:
             f"- improve maintainability above {max(75, metrics.maintainability_index)}\n"
             "- reduce code smells and unnecessary complexity without changing intended business behavior\n"
             "- keep or improve testability and explainability\n"
+            "Explicitly address these risks in your plan and implementation:\n"
+            "- security risk with specification\n"
+            "- false confidence in bad code or bad analysis\n"
+            "- too much autonomy of the agent\n"
+            "- weak governance\n"
             "Implementation rules:\n"
             "- remove hardcoded secrets, unsafe execution paths, insecure defaults, and risky trust-boundary violations\n"
             "- isolate business logic from transport, persistence, and shell/IO orchestration when mixed together\n"
             "- refactor branch-heavy or tightly coupled code into smaller composable units\n"
+            "- add governance checkpoints so risky changes require explicit human verification\n"
             "- add or update regression, abuse-case, and negative-path tests for each fix\n"
             "- summarize the exact changes, risks removed, and remaining follow-ups"
         )
@@ -1986,6 +2137,11 @@ class RemediationPromptEngine:
                 f"- improve maintainability above {max(75, metrics.maintainability_index)}\n"
                 "- remove code smells, reduce complexity, and keep intended business behavior intact\n"
                 "- add or update focused tests for abuse cases, regression paths, and failure handling\n"
+                "Explicitly address these risks while fixing this file:\n"
+                "- security risk with specification\n"
+                "- false confidence in bad code or bad analysis\n"
+                "- too much autonomy of the agent\n"
+                "- weak governance\n"
                 f"Review focus should stay on {options.focus_mode} concerns for an {options.audience} audience.\n"
                 "Return the code changes, tests added, risks removed, and any follow-up work still required."
             )
@@ -2113,6 +2269,8 @@ class SafeVibingSafetyAgent:
                     summary=summary,
                     technical_leader_view=self._build_technical_leader_view([], empty_metrics, "warn", "medium", normalized_options),
                     business_view=self._build_business_view([], empty_metrics, "warn", "medium", normalized_options),
+                    founder_business_analysis=self._build_founder_business_analysis([], empty_metrics, "warn", "medium", normalized_options),
+                    delivery_risk_analysis=self._build_delivery_risk_analysis([], empty_metrics, "warn", "medium"),
                     agent_brief=self._build_agent_brief([], empty_metrics, "warn", "medium", normalized_options),
                 )
 
@@ -2189,6 +2347,8 @@ class SafeVibingSafetyAgent:
             summary=summary,
             technical_leader_view=self._build_technical_leader_view(reviews, aggregated_metrics, overall_decision, risk_label, options),
             business_view=self._build_business_view(reviews, aggregated_metrics, overall_decision, risk_label, options),
+            founder_business_analysis=self._build_founder_business_analysis(reviews, aggregated_metrics, overall_decision, risk_label, options),
+            delivery_risk_analysis=self._build_delivery_risk_analysis(reviews, aggregated_metrics, overall_decision, risk_label),
             hackathon_showcase=self._build_hackathon_showcase(reviews, aggregated_metrics, overall_decision, risk_label, options),
             agent_brief=self._build_agent_brief(reviews, aggregated_metrics, overall_decision, risk_label, options),
             remediation_prompt=self.remediation_prompt_engine.build(reviews, aggregated_metrics, options),
@@ -2315,6 +2475,161 @@ class SafeVibingSafetyAgent:
             priorities=priorities,
             concerns=concerns,
             opportunities=opportunities,
+        )
+
+    def _build_founder_business_analysis(
+        self,
+        reviews: List[ReviewResult],
+        metrics: MetricSnapshot | None,
+        decision: str,
+        risk_label: str,
+        options: ReviewOptions,
+    ) -> FounderBusinessAnalysis:
+        metrics = metrics or MetricSnapshot(0, 0, 100, "low", 100, 0, 100, 100, 0, 100)
+        files_reviewed = len(reviews)
+        top_focus = next((review.file_path for review in reviews if review.deep_dive is not None), "the current product surface")
+        risk_posture = "trusted for pilot conversations" if risk_label == "low" else "credible for discovery but not broad rollout" if risk_label == "medium" else "not ready for scaled trust"
+        headline = "AI engineering governance with a founder-readable business narrative"
+        market_position = (
+            "SafeVibing sits between code review tooling and buyer-facing governance: it helps teams show that AI-generated software is understandable, reviewable, and safer to ship."
+        )
+        product_value = (
+            f"The current repo review shows a {risk_label.upper()} posture across {files_reviewed} files, which gives founders a concrete trust story: where the product is strong, where it is risky, and what must change before customer-facing use. "
+            f"Right now it is {risk_posture}."
+        )
+        go_to_market = [
+            "Sell first to teams shipping AI-assisted code who need a fast governance layer before enterprise procurement pushes back.",
+            "Position the report as a bridge between engineering reality and founder/customer language, not just another static scanner.",
+            f"Demo the product by starting at {top_focus} and then showing the separate founder panel before deep technical evidence.",
+        ]
+        business_risks = [
+            f"Current product credibility is constrained by a {risk_label.upper()} repo posture and approval status of {decision.upper()}.",
+            f"Maintainability at {metrics.maintainability_index} and safe defaults at {metrics.safe_defaults_score} can affect delivery trust and sales confidence.",
+            "If the product stays too technical, founders may struggle to turn review output into customer-facing value and pricing language.",
+        ]
+        growth_opportunities = [
+            "Package founder/business analysis as a recurring governance report for pilots, board updates, and enterprise security reviews.",
+            "Use repo health trends and remediation prompts as a retained workflow rather than a one-off scanner.",
+            f"Tune the report for {options.audience} and different company stages to expand beyond a single engineering persona.",
+        ]
+        founder_questions = [
+            "Which buyer feels this pain first: startup CTOs, AI product teams, or compliance-sensitive software organizations?",
+            "What proof point closes deals fastest: prevented risk, faster remediation, or clearer buyer trust narrative?",
+            "Which parts of this report become the paid product, and which parts stay as acquisition or demo surface?",
+        ]
+        return FounderBusinessAnalysis(
+            headline=headline,
+            market_position=market_position,
+            product_value=product_value,
+            go_to_market=go_to_market,
+            business_risks=business_risks,
+            growth_opportunities=growth_opportunities,
+            founder_questions=founder_questions,
+        )
+
+    def _build_delivery_risk_analysis(
+        self,
+        reviews: List[ReviewResult],
+        metrics: MetricSnapshot | None,
+        decision: str,
+        risk_label: str,
+    ) -> DeliveryRiskAnalysis:
+        metrics = metrics or MetricSnapshot(0, 0, 100, "low", 100, 0, 100, 100, 0, 100)
+        findings_total = sum(len(review.findings) for review in reviews)
+        explainability = metrics.explainability_completeness
+        high_risk_files = sum(1 for review in reviews if review.risk_label == "high")
+        security_titles = sorted(
+            {
+                finding.title
+                for review in reviews
+                for finding in review.findings
+                if finding.category == "security"
+            }
+        )
+        design_titles = sorted(
+            {
+                finding.title
+                for review in reviews
+                for finding in review.findings
+                if finding.category == "design"
+            }
+        )
+        autonomous_scope = sum(1 for review in reviews if review.deep_dive is not None and review.deep_dive.attention_level in {"high", "medium"})
+        governance_hotspots = [review.file_path for review in reviews if review.risk_label == "high"][:3]
+        items = [
+            DeliveryRiskItem(
+                title="Security risk with specification",
+                severity="high" if metrics.security_risk_score >= 40 or risk_label == "high" else "medium",
+                summary=(
+                    f"Security posture is only partially specified by the current implementation. Security risk is {metrics.security_risk_score}/100, "
+                    f"with {high_risk_files} high-risk file(s), which means product behavior may drift beyond intended trust boundaries."
+                ),
+                findings=[
+                    f"Security risk score is {metrics.security_risk_score}/100.",
+                    f"High-risk files identified: {high_risk_files}.",
+                    f"Observed security finding types: {', '.join(security_titles[:4]) if security_titles else 'none explicitly detected by the current heuristics'}.",
+                ],
+                mitigations=[
+                    "Make security requirements explicit in prompts, code paths, and acceptance tests.",
+                    "Require secure-by-design and safe-default checks before merge or demo use.",
+                ],
+            ),
+            DeliveryRiskItem(
+                title="False confidence in bad code or bad analysis",
+                severity="high" if explainability < 70 or findings_total == 0 else "medium",
+                summary=(
+                    f"A report can create false confidence if unsafe code passes lightweight heuristics or if analysis depth is mistaken for correctness. "
+                    f"Explainability is {explainability}/100 and total findings are {findings_total}."
+                ),
+                findings=[
+                    f"Explainability completeness is {explainability}/100.",
+                    f"Total surfaced findings are {findings_total}.",
+                    f"Design/code-smell signals observed: {', '.join(design_titles[:4]) if design_titles else 'limited explicit design findings'}.",
+                ],
+                mitigations=[
+                    "Force evidence-backed review output with test updates, concrete diffs, and explicit residual risks.",
+                    "Treat low finding counts as a signal to verify, not as proof the code is safe.",
+                ],
+            ),
+            DeliveryRiskItem(
+                title="Too much autonomy of the agent",
+                severity="high" if decision == "allow" and metrics.safe_defaults_score < 85 else "medium",
+                summary=(
+                    "Agentic generation and remediation can outrun review if the system acts with broad autonomy but weak checkpoints. "
+                    "That creates the risk of polished but unsafe implementation changes."
+                ),
+                findings=[
+                    f"Files eligible for medium/high-attention autonomous remediation: {autonomous_scope}.",
+                    f"Current approval decision is {decision.upper()}.",
+                    "Per-file remediation prompts can drive direct implementation changes if not kept under human review.",
+                ],
+                mitigations=[
+                    "Require human approval before high-risk changes, security-sensitive edits, or broad refactors land.",
+                    "Constrain remediation prompts to scoped files, explicit goals, and mandatory regression tests.",
+                ],
+            ),
+            DeliveryRiskItem(
+                title="Weak governance",
+                severity="high" if metrics.safe_defaults_score < 70 or metrics.secure_by_design_score < 70 else "medium",
+                summary=(
+                    f"Governance is weak when approval, safe defaults, and remediation workflow are not tied together tightly enough. "
+                    f"Secure-by-design is {metrics.secure_by_design_score}/100 and safe defaults are {metrics.safe_defaults_score}/100."
+                ),
+                findings=[
+                    f"Secure-by-design score is {metrics.secure_by_design_score}/100.",
+                    f"Safe defaults score is {metrics.safe_defaults_score}/100.",
+                    f"Current governance hotspots: {', '.join(governance_hotspots) if governance_hotspots else 'no high-risk files currently flagged'}.",
+                ],
+                mitigations=[
+                    "Make approval status, top risks, and remediation ownership part of the operating workflow.",
+                    "Track trend lines for secure-by-design, safe defaults, and unresolved high-risk files across runs.",
+                ],
+            ),
+        ]
+        return DeliveryRiskAnalysis(
+            headline="Security and Governance Risk Analysis",
+            summary="These are the failure modes most likely to distort trust in AI-assisted software delivery, even when the interface looks polished.",
+            items=items,
         )
 
     def _build_hackathon_showcase(

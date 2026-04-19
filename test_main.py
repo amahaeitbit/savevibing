@@ -109,6 +109,17 @@ def add(a: int, b: int) -> int:
             review.hackathon_showcase.project_tagline,
             review_dict["hackathon_showcase"]["project_tagline"],
         )
+        self.assertIsNotNone(review.founder_business_analysis)
+        assert review.founder_business_analysis is not None
+        self.assertIn("governance", review.founder_business_analysis.market_position.lower())
+        self.assertIsNotNone(review.delivery_risk_analysis)
+        assert review.delivery_risk_analysis is not None
+        risk_titles = [item.title for item in review.delivery_risk_analysis.items]
+        self.assertIn("Security risk with specification", risk_titles)
+        self.assertIn("False confidence in bad code or bad analysis", risk_titles)
+        self.assertIn("Too much autonomy of the agent", risk_titles)
+        self.assertIn("Weak governance", risk_titles)
+        self.assertTrue(all(item.findings for item in review.delivery_risk_analysis.items))
         self.assertIsNotNone(review.agent_brief)
         assert review.agent_brief is not None
         self.assertEqual("SafeVibing Safety Agent", review.agent_brief.agent_name)
@@ -119,11 +130,18 @@ def add(a: int, b: int) -> int:
         assert review.remediation_prompt is not None
         self.assertIn("senior software engineer", review.remediation_prompt.prompt)
         self.assertTrue(review.remediation_prompt.focus_points)
+        self.assertIn("security risk with specification", review.remediation_prompt.prompt)
+        self.assertIn("false confidence in bad code or bad analysis", review.remediation_prompt.prompt)
+        self.assertIn("too much autonomy of the agent", review.remediation_prompt.prompt)
+        self.assertIn("weak governance", review.remediation_prompt.prompt)
         self.assertTrue(review.file_remediation_prompts)
         self.assertLessEqual(len(review.file_remediation_prompts), 10)
         self.assertIn("risky.py", review.file_remediation_prompts[0].title)
         self.assertEqual("security", review.file_remediation_prompts[0].group)
+        self.assertIn("weak governance", review.file_remediation_prompts[0].prompt)
         self.assertIn("agent_brief", review_dict)
+        self.assertIn("founder_business_analysis", review_dict)
+        self.assertIn("delivery_risk_analysis", review_dict)
         self.assertEqual(
             review.agent_brief.agent_name,
             review_dict["agent_brief"]["agent_name"],
@@ -131,19 +149,25 @@ def add(a: int, b: int) -> int:
         self.assertIn("remediation_prompt", review_dict)
         self.assertIn("file_remediation_prompts", review_dict)
         html = self.renderer.render(review)
-        self.assertIn("Meet your review agent", html)
-        self.assertIn("VibeCoder Remediation Prompt", html)
+        self.assertIn("Repository Summary", html)
+        self.assertIn("What matters now", html)
         self.assertIn("Copy fix prompt", html)
         self.assertIn("Per-file VibeCoder prompts", html)
         self.assertIn("Copy file prompt", html)
         self.assertIn("Security", html)
-        self.assertIn("Autonomous workflow", html)
-        self.assertIn("Actions this agent takes for you", html)
-        self.assertIn("Hackathon spotlight", html)
-        self.assertIn("Why this can win the room", html)
-        self.assertIn("Live demo script", html)
+        self.assertIn("High-Level Founder Business Analysis", html)
+        self.assertIn("Separate from coding review", html)
+        self.assertIn("Go-to-market angle", html)
+        self.assertIn("Business Risks", html)
+        self.assertIn("Founder Questions", html)
+        self.assertIn("Security and Governance Risk Analysis", html)
+        self.assertIn("Security risk with specification", html)
+        self.assertIn("False confidence in bad code or bad analysis", html)
+        self.assertIn("Too much autonomy of the agent", html)
+        self.assertIn("Weak governance", html)
+        self.assertIn("Findings", html)
+        self.assertIn("Mitigations", html)
         self.assertIn("Repository focus queue", html)
-        self.assertIn("Interactive review configuration", html)
         self.assertIn("Search file reviews", html)
         self.assertIn("Copy JSON snapshot", html)
         self.assertIn("Senior engineer brief", html)
@@ -158,6 +182,7 @@ def add(a: int, b: int) -> int:
         self.assertIn("File deep dive for clarity", html)
         self.assertIn("File in focus: risky.py.", html)
         self.assertIn("risky.py", html)
+        self.assertIn("<details class=\"review-card\" open", html)
 
     def test_repository_review_respects_include_patterns_and_max_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
